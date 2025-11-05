@@ -1,0 +1,123 @@
+name: Automated Release Management
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: read
+  issues: read
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    name: Create GitHub Release
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Get version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          VERSION="${{ inputs.version }}"
+        else
+          VERSION="${GITHUB_REF#refs/tags/}"
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Version: $VERSION"
+
+    - name: Get previous tag
+      id: previous_tag
+      run: |
+        PREVIOUS_TAG=$(git tag --sort=-v:refname | grep -v "${{ steps.version.outputs.version }}" | head -n1)
+        echo "previous_tag=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+        echo "Previous tag: $PREVIOUS_TAG"
+
+    - name: Generate changelog
+      id: changelog
+      run: |
+        echo "Generating changelog from ${{ steps.previous_tag.outputs.previous_tag }} to ${{ steps.version.outputs.version }}"
+
+        # Get commits since last tag
+        if [ -n "${{ steps.previous_tag.outputs.previous_tag }}" ]; then
+          COMMITS=$(git log ${{ steps.previous_tag.outputs.previous_tag }}..${{ steps.version.outputs.version }} --pretty=format:"- %s (%h)" --no-merges)
+        else
+          COMMITS=$(git log ${{ steps.version.outputs.version }} --pretty=format:"- %s (%h)" --no-merges)
+        fi
+
+        # Categorize commits
+        FEATURES=$(echo "$COMMITS" | grep -i "feat\|feature\|add" || echo "")
+        FIXES=$(echo "$COMMITS" | grep -i "fix\|bug" || echo "")
+        DOCS=$(echo "$COMMITS" | grep -i "doc\|docs\|documentation" || echo "")
+        CHORES=$(echo "$COMMITS" | grep -i "chore\|refactor\|style" || echo "")
+        OTHER=$(echo "$COMMITS" | grep -iv "feat\|feature\|add\|fix\|bug\|doc\|docs\|chore\|refactor\|style" || echo "")
+
+        # Build changelog
+        CHANGELOG="## What's Changed in ${{ steps.version.outputs.version }}\n\n"
+
+        if [ -n "$FEATURES" ]; then
+          CHANGELOG="${CHANGELOG}### ✨ New Features\n${FEATURES}\n\n"
+        fi
+
+        if [ -n "$FIXES" ]; then
+          CHANGELOG="${CHANGELOG}### 🐛 Bug Fixes\n${FIXES}\n\n"
+        fi
+
+        if [ -n "$DOCS" ]; then
+          CHANGELOG="${CHANGELOG}### 📚 Documentation\n${DOCS}\n\n"
+        fi
+
+        if [ -n "$CHORES" ]; then
+          CHANGELOG="${CHANGELOG}### 🔧 Maintenance\n${CHORES}\n\n"
+        fi
+
+        if [ -n "$OTHER" ]; then
+          CHANGELOG="${CHANGELOG}### 📦 Other Changes\n${OTHER}\n\n"
+        fi
+
+        # Add installation instructions
+        CHANGELOG="${CHANGELOG}---\n\n### 📥 Installation\n\n"
+        CHANGELOG="${CHANGELOG}To use this release:\n\n"
+        CHANGELOG="${CHANGELOG}1. Clone or download this repository\n"
+        CHANGELOG="${CHANGELOG}2. Copy the \`.claude\` directory to your project\n"
+        CHANGELOG="${CHANGELOG}3. Customize \`CLAUDE.md\` and settings files\n"
+        CHANGELOG="${CHANGELOG}4. Run Claude Code in your project directory\n\n"
+        CHANGELOG="${CHANGELOG}See [README.md](https://github.com/${{ github.repository }}/blob/${{ steps.version.outputs.version }}/README.md) for detailed setup instructions.\n"
+
+        # Save to file
+        echo -e "$CHANGELOG" > CHANGELOG.md
+        cat CHANGELOG.md
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.version.outputs.version }}
+        name: Release ${{ steps.version.outputs.version }}
+        body_path: CHANGELOG.md
+        draft: false
+        prerelease: false
+        generate_release_notes: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Create release summary
+      run: |
+        echo "## 🎉 Release Created Successfully!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Release URL:** ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Changelog Preview" >> $GITHUB_STEP_SUMMARY
+        head -n 20 CHANGELOG.md >> $GITHUB_STEP_SUMMARY

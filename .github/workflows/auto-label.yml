@@ -1,0 +1,112 @@
+name: Auto Label Issues and PRs
+
+on:
+  issues:
+    types: [opened, edited]
+  pull_request:
+    types: [opened, edited, synchronize]
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    name: Auto-label based on content
+
+    steps:
+    - name: Label based on issue/PR content
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const issue = context.payload.issue || context.payload.pull_request;
+          const body = (issue.body || '').toLowerCase();
+          const title = (issue.title || '').toLowerCase();
+          const content = body + ' ' + title;
+
+          const labels = [];
+
+          // Component labels
+          if (content.includes('slash command') || content.includes('/')) {
+            labels.push('slash-commands');
+          }
+          if (content.includes('hook') || content.includes('pre-commit') || content.includes('post-')) {
+            labels.push('hooks');
+          }
+          if (content.includes('agent') || content.includes('subagent')) {
+            labels.push('agents');
+          }
+          if (content.includes('mcp') || content.includes('mcp server')) {
+            labels.push('mcp-servers');
+          }
+          if (content.includes('skill')) {
+            labels.push('skills');
+          }
+          if (content.includes('memory bank') || content.includes('claude.md') || content.includes('claude-')) {
+            labels.push('memory-bank');
+          }
+
+          // Type labels
+          if (content.includes('bug') || content.includes('error') || content.includes('broken')) {
+            labels.push('bug');
+          }
+          if (content.includes('feature') || content.includes('enhancement') || content.includes('add ')) {
+            labels.push('enhancement');
+          }
+          if (content.includes('documentation') || content.includes('docs') || content.includes('readme')) {
+            labels.push('documentation');
+          }
+          if (content.includes('question') || content.includes('how to') || content.includes('help')) {
+            labels.push('question');
+          }
+
+          // Priority labels
+          if (content.includes('urgent') || content.includes('critical') || content.includes('asap')) {
+            labels.push('priority:high');
+          }
+
+          // Automation labels
+          if (content.includes('github action') || content.includes('workflow') || content.includes('ci/cd')) {
+            labels.push('automation');
+          }
+
+          if (labels.length > 0) {
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: labels
+            });
+
+            console.log(`Added labels: ${labels.join(', ')}`);
+          }
+
+    - name: Add size label to PRs
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const pr = context.payload.pull_request;
+          const { data: files } = await github.rest.pulls.listFiles({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: pr.number
+          });
+
+          const changes = files.reduce((acc, file) => acc + file.additions + file.deletions, 0);
+
+          let sizeLabel = '';
+          if (changes < 10) sizeLabel = 'size:XS';
+          else if (changes < 50) sizeLabel = 'size:S';
+          else if (changes < 200) sizeLabel = 'size:M';
+          else if (changes < 500) sizeLabel = 'size:L';
+          else sizeLabel = 'size:XL';
+
+          await github.rest.issues.addLabels({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: pr.number,
+            labels: [sizeLabel]
+          });

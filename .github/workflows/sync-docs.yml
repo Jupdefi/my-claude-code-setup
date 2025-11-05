@@ -1,0 +1,123 @@
+name: Sync Documentation with Claude Docs
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      force_update:
+        description: 'Force update even if no changes detected'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check-docs:
+    runs-on: ubuntu-latest
+    name: Check for Claude Code documentation updates
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Check Claude Code official docs
+      id: check_docs
+      run: |
+        echo "🔍 Checking for updates to Claude Code documentation references..."
+
+        # Key docs URLs to monitor
+        DOCS_URLS=(
+          "https://docs.anthropic.com/en/docs/claude-code/overview"
+          "https://docs.anthropic.com/en/docs/claude-code/settings"
+          "https://docs.anthropic.com/en/docs/claude-code/hooks"
+          "https://docs.anthropic.com/en/docs/claude-code/sub-agents"
+          "https://docs.anthropic.com/en/docs/claude-code/skills"
+        )
+
+        NEEDS_UPDATE=false
+        UPDATED_DOCS=""
+
+        for url in "${DOCS_URLS[@]}"; do
+          echo "Checking: $url"
+
+          # Simple check if URL is still valid
+          if curl -s -o /dev/null -w "%{http_code}" "$url" | grep -q "200"; then
+            echo "✅ $url is accessible"
+          else
+            echo "⚠️  $url may need attention"
+            NEEDS_UPDATE=true
+            UPDATED_DOCS="$UPDATED_DOCS\n- $url"
+          fi
+        done
+
+        echo "needs_update=$NEEDS_UPDATE" >> $GITHUB_OUTPUT
+        echo "updated_docs<<EOF" >> $GITHUB_OUTPUT
+        echo -e "$UPDATED_DOCS" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Create issue for doc updates
+      if: steps.check_docs.outputs.needs_update == 'true'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const issueTitle = '📚 Claude Code Documentation May Need Updates';
+          const issueBody = `
+          ## Documentation Update Alert
+
+          The automated documentation sync check has detected potential updates needed for Claude Code documentation references.
+
+          ### Potentially affected links:
+          ${{ steps.check_docs.outputs.updated_docs }}
+
+          ### Action Items:
+          - [ ] Review the official Claude Code documentation
+          - [ ] Update README.md with any new features or changes
+          - [ ] Update CLAUDE.md if configuration options changed
+          - [ ] Check slash commands for deprecated features
+          - [ ] Update examples if API changed
+
+          **Workflow run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          ---
+          *This issue was automatically created by the sync-docs workflow*
+          `;
+
+          // Check if issue already exists
+          const { data: issues } = await github.rest.issues.listForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            state: 'open',
+            labels: 'automated,documentation'
+          });
+
+          const existingIssue = issues.find(issue => issue.title === issueTitle);
+
+          if (!existingIssue) {
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: issueTitle,
+              body: issueBody,
+              labels: ['automated', 'documentation', 'enhancement']
+            });
+          }
+
+    - name: Summary
+      run: |
+        echo "✨ Documentation sync check complete!"
+        if [ "${{ steps.check_docs.outputs.needs_update }}" == "true" ]; then
+          echo "⚠️  Some documentation may need attention"
+        else
+          echo "✅ All documentation links are valid"
+        fi

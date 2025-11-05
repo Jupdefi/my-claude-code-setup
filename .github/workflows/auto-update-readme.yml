@@ -1,0 +1,134 @@
+name: Auto-Update README Stats
+
+on:
+  schedule:
+    # Run weekly on Sundays at 3 AM UTC
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-stats:
+    runs-on: ubuntu-latest
+    name: Update repository statistics in README
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Collect repository statistics
+      id: stats
+      run: |
+        echo "📊 Collecting repository statistics..."
+
+        # Count files
+        TOTAL_FILES=$(find . -type f ! -path "./.git/*" | wc -l)
+        CLAUDE_FILES=$(find .claude -type f 2>/dev/null | wc -l || echo 0)
+        SLASH_COMMANDS=$(find .claude/commands -type f -name "*.md" 2>/dev/null | wc -l || echo 0)
+        AGENTS=$(find .claude/agents -type f -name "*.md" 2>/dev/null | wc -l || echo 0)
+        HOOKS=$(find .claude/hooks -type f 2>/dev/null | wc -l || echo 0)
+        WORKFLOWS=$(find .github/workflows -type f -name "*.yml" 2>/dev/null | wc -l || echo 0)
+
+        # Count commits
+        TOTAL_COMMITS=$(git rev-list --count HEAD)
+
+        # Count contributors
+        CONTRIBUTORS=$(git log --format='%aN' | sort -u | wc -l)
+
+        # Last updated
+        LAST_COMMIT=$(git log -1 --format='%cd' --date=short)
+
+        echo "total_files=$TOTAL_FILES" >> $GITHUB_OUTPUT
+        echo "claude_files=$CLAUDE_FILES" >> $GITHUB_OUTPUT
+        echo "slash_commands=$SLASH_COMMANDS" >> $GITHUB_OUTPUT
+        echo "agents=$AGENTS" >> $GITHUB_OUTPUT
+        echo "hooks=$HOOKS" >> $GITHUB_OUTPUT
+        echo "workflows=$WORKFLOWS" >> $GITHUB_OUTPUT
+        echo "total_commits=$TOTAL_COMMITS" >> $GITHUB_OUTPUT
+        echo "contributors=$CONTRIBUTORS" >> $GITHUB_OUTPUT
+        echo "last_commit=$LAST_COMMIT" >> $GITHUB_OUTPUT
+
+        echo "✅ Statistics collected!"
+        echo "Total Files: $TOTAL_FILES"
+        echo "Claude Files: $CLAUDE_FILES"
+        echo "Slash Commands: $SLASH_COMMANDS"
+        echo "Agents: $AGENTS"
+        echo "Hooks: $HOOKS"
+        echo "Workflows: $WORKFLOWS"
+
+    - name: Check for changes
+      id: check_changes
+      run: |
+        CHANGES=false
+
+        # Check if any significant changes occurred
+        RECENT_COMMITS=$(git log --since="7 days ago" --oneline | wc -l)
+        if [ $RECENT_COMMITS -gt 0 ]; then
+          CHANGES=true
+        fi
+
+        echo "changes=$CHANGES" >> $GITHUB_OUTPUT
+        echo "recent_commits=$RECENT_COMMITS" >> $GITHUB_OUTPUT
+
+    - name: Create stats badge info
+      if: steps.check_changes.outputs.changes == 'true'
+      run: |
+        cat > .github/repo-stats.json <<EOF
+        {
+          "updated": "$(date -u +%Y-%m-%d)",
+          "stats": {
+            "slash_commands": ${{ steps.stats.outputs.slash_commands }},
+            "agents": ${{ steps.stats.outputs.agents }},
+            "hooks": ${{ steps.stats.outputs.hooks }},
+            "workflows": ${{ steps.stats.outputs.workflows }},
+            "commits": ${{ steps.stats.outputs.total_commits }},
+            "contributors": ${{ steps.stats.outputs.contributors }}
+          }
+        }
+        EOF
+        cat .github/repo-stats.json
+
+    - name: Create Pull Request
+      if: steps.check_changes.outputs.changes == 'true'
+      uses: peter-evans/create-pull-request@v6
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: |
+          📊 Update repository statistics
+
+          Auto-generated stats update:
+          - Slash commands: ${{ steps.stats.outputs.slash_commands }}
+          - Agents: ${{ steps.stats.outputs.agents }}
+          - Hooks: ${{ steps.stats.outputs.hooks }}
+          - Workflows: ${{ steps.stats.outputs.workflows }}
+        branch: auto-update-stats
+        delete-branch: true
+        title: '📊 Update repository statistics'
+        body: |
+          ## Automated Statistics Update
+
+          This PR updates the repository statistics.
+
+          ### Current Stats:
+          - 📝 **Slash Commands**: ${{ steps.stats.outputs.slash_commands }}
+          - 🤖 **Agents**: ${{ steps.stats.outputs.agents }}
+          - 🪝 **Hooks**: ${{ steps.stats.outputs.hooks }}
+          - ⚙️  **Workflows**: ${{ steps.stats.outputs.workflows }}
+          - 📦 **Total Commits**: ${{ steps.stats.outputs.total_commits }}
+          - 👥 **Contributors**: ${{ steps.stats.outputs.contributors }}
+          - 🕐 **Last Updated**: ${{ steps.stats.outputs.last_commit }}
+
+          ### Changes This Week:
+          - ${{ steps.check_changes.outputs.recent_commits }} commits in the last 7 days
+
+          ---
+          *This PR was automatically created by the auto-update-readme workflow*
+        labels: |
+          automated
+          documentation
+        draft: false

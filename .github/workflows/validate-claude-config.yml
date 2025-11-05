@@ -1,0 +1,105 @@
+name: Validate Claude Code Configuration
+
+on:
+  push:
+    branches: [ main, master, claude/** ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  validate-config:
+    runs-on: ubuntu-latest
+    name: Validate Claude Code Configs
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate JSON files
+      run: |
+        echo "🔍 Validating JSON configuration files..."
+        find .claude -name "*.json" -type f | while read file; do
+          echo "Checking $file..."
+          if jq empty "$file" 2>/dev/null; then
+            echo "✅ $file is valid JSON"
+          else
+            echo "❌ $file is invalid JSON"
+            exit 1
+          fi
+        done
+
+    - name: Check for required Claude files
+      run: |
+        echo "🔍 Checking for required Claude Code files..."
+        required_files=(
+          "CLAUDE.md"
+          ".claude/settings.json"
+        )
+
+        missing_files=()
+        for file in "${required_files[@]}"; do
+          if [ ! -f "$file" ]; then
+            missing_files+=("$file")
+          fi
+        done
+
+        if [ ${#missing_files[@]} -gt 0 ]; then
+          echo "❌ Missing required files:"
+          printf '%s\n' "${missing_files[@]}"
+          exit 1
+        else
+          echo "✅ All required files present"
+        fi
+
+    - name: Validate markdown files
+      run: |
+        echo "🔍 Checking markdown files for broken links..."
+        # Check for common markdown issues
+        find . -name "*.md" -type f ! -path "./node_modules/*" | while read file; do
+          echo "Checking $file..."
+          # Check for broken internal links (basic check)
+          grep -oP '\[.*?\]\(\K[^)]+' "$file" | while read link; do
+            if [[ "$link" =~ ^/ ]] || [[ "$link" =~ ^\./ ]]; then
+              if [ ! -e "$link" ] && [ ! -e "${link#./}" ]; then
+                echo "⚠️  Warning: Potential broken link in $file: $link"
+              fi
+            fi
+          done
+        done
+        echo "✅ Markdown validation complete"
+
+    - name: Check slash command syntax
+      run: |
+        echo "🔍 Validating slash command files..."
+        if [ -d ".claude/commands" ]; then
+          find .claude/commands -name "*.md" -type f | while read file; do
+            echo "Checking $file..."
+            # Check if file is not empty
+            if [ ! -s "$file" ]; then
+              echo "❌ Empty slash command file: $file"
+              exit 1
+            fi
+            echo "✅ $file validated"
+          done
+        fi
+
+    - name: Validate agent configurations
+      run: |
+        echo "🔍 Validating agent configuration files..."
+        if [ -d ".claude/agents" ]; then
+          find .claude/agents -name "*.md" -type f | while read file; do
+            echo "Checking $file..."
+            # Check if file contains required sections
+            if ! grep -q "# " "$file"; then
+              echo "⚠️  Warning: $file may be missing header structure"
+            fi
+            echo "✅ $file validated"
+          done
+        fi
+
+    - name: Summary
+      if: always()
+      run: |
+        echo "✨ Claude Code configuration validation complete!"
+        echo "📊 Repository is ready for Claude Code usage"

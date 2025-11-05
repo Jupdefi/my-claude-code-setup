@@ -93,6 +93,28 @@ Claude Code subagents are specialized tools designed to handle complex, multi-st
   - Component library design with atomic methodology
 - **Usage**: Use for dashboard UX improvements, premium component libraries, complex user flow optimization, design system creation, or any comprehensive UX/UI design guidance needs
 
+### github-automation
+
+- **Purpose**: Autonomous GitHub operations agent for managing issues, pull requests, code reviews, releases, repository health, and workflow automation
+- **Location**: `.claude/agents/github-automation.md`
+- **Skill File**: `.claude/SKILLS/github-agent.md`
+- **Key Responsibilities**:
+  - Issue creation and management with intelligent auto-labeling
+  - PR reviews with comprehensive code quality analysis
+  - Fork synchronization and branch management
+  - Release automation with changelog generation
+  - Repository label and milestone management
+  - GitHub Actions workflow deployment and monitoring
+  - Repository health checks and maintenance
+  - Batch operations on issues and PRs
+- **Usage**: Use when you need to perform GitHub operations autonomously. The agent can create issues, review PRs, manage releases, sync forks, configure labels, monitor workflows, and maintain repository health
+  - **Issue management**: "Use github-agent to create an issue for this bug"
+  - **PR review**: "Use github-agent to review PR #123"
+  - **Fork sync**: "Use github-agent to sync my fork with upstream"
+  - **Release**: "Use github-agent to create release v1.2.0"
+  - **Health check**: "Use github-agent to perform repository health check"
+- **Requirements**: GitHub CLI (`gh`) must be installed and authenticated
+
 ## Claude Code Slash Commands
 
 ### `/anthropic` Commands
